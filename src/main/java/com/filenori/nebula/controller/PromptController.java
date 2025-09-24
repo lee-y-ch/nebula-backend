@@ -18,4 +18,9 @@ public class PromptController {
         return promptService.getText();
     }
 
+    @GetMapping("/world")
+    public String getWorld() {
+        return promptService.getText();
+    }
+
 }
