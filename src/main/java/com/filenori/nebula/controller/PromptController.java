@@ -1,26 +1,33 @@
 package com.filenori.nebula.controller;
 
 
+import com.filenori.nebula.dto.request.KeywordRequestDto;
+import com.filenori.nebula.dto.response.FileNameResponseDto;
 import com.filenori.nebula.service.PromptService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequiredArgsConstructor
 public class PromptController {
+
     private final PromptService promptService;
 
+    /**
+     * 키워드 리스트를 받아 파일 이름을 생성하고 반환하는 API
+     * @param requestDto 키워드 리스트를 포함하는 DTO
+     * @return 생성된 파일 이름 정보를 담은 DTO
+     */
 
-    @GetMapping("/hello")
-    public String getHello() {
-        return promptService.getText();
-    }
+    // 파이썬에서 키워드 리스트 받아지는 함수
+    @PostMapping("/generate-filename")
+    public ResponseEntity<FileNameResponseDto> generateFileName(@RequestBody KeywordRequestDto requestDto) {
 
-    @GetMapping("/world")
-    public String getWorld() {
-        return promptService.getText();
+        // @RequestBody 어노테이션으로 JSON 요청 본문을 DTO에 매핑
+        FileNameResponseDto responseDto = promptService.generateFileNameFromKeywords(requestDto);
+
+        return ResponseEntity.ok(responseDto);
     }
 
 }

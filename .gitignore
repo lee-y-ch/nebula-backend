@@ -35,3 +35,7 @@ out/
 
 ### VS Code ###
 .vscode/
+
+# Custom Rules
+# OpenAI API Key 같은 민감 정보 보호
+appllication.properties
