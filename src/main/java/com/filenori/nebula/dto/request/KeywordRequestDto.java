@@ -9,6 +9,7 @@ import java.util.List;
 @Getter
 @NoArgsConstructor
 public class KeywordRequestDto {
+    private String userId;
     private String directory;
     private String generatedAt;
     private Integer page;
