@@ -85,29 +85,42 @@ public class PromptService {
         String extensionInstruction = buildExtensionInstruction(entry.getRelativePath(), entry.isDirectory());
 
         return """
-                당신은 개별 파일 메타데이터를 분석해 두 가지 파일명을 제안하고 P.A.R.A. 방법론에 따라 정리 위치를 추천하는 도우미입니다.
-                규칙:
-                - 한국어와 영어 파일명을 각각 제안합니다. 한국어는 자연스럽고 직관적인 표현을 사용하고, 영어는 국제적/기술적 맥락에 맞는 표현을 사용합니다.
-                - 일반적인 파일명 규칙과 다르게 공백을 사용합니다.
-                - %s
-                - P.A.R.A. 버킷 중 Projects, Areas, Resources, Archive 어디에 속하는지 판단하고, 소문자 폴더명을 사용하는 경로(예: projects/nebula)를 제안합니다.
-                - 경로에는 파일명을 포함하지 말고, 버킷 루트 바로 아래 또는 그 다음 depth(최대 2단계)까지만 사용합니다. 예: projects/nebula 허용, projects/nebula/develop 불가.
-                - 버킷을 고를 때는 파일의 목적, 사용 빈도, 장기 보존 필요성 등을 고려합니다.
-                반드시 다음 JSON 형식만 반환하세요:
+                You are an expert assistant specializing in file organization. Your task is to analyze the provided file metadata, propose two distinct filenames, and recommend an organizational path based on the P.A.R.A. methodology.
+                
+                Rules:
+                1.  **Propose two filenames:**
+                    * **Korean (ko_name):** Use natural and intuitive Korean.
+                    * **English (en_name):** Use professional, standard English suitable for an international or technical context.
+                2.  **Use spaces in filenames:** You must use spaces in the filenames, which is a deliberate exception to typical file-naming conventions.
+                3.  %s
+                4.  **P.A.R.A. Recommendation:**
+                    * Determine the correct P.A.R.A. bucket: **Projects, Areas, Resources, or Archive**.
+                    * Base this decision on the file's purpose, frequency of use, and need for long-term preservation.
+                    * Propose a path using only **lowercase** folder names (e.g., `projects/nebula`).
+                    * The path **must not** include the filename itself.
+                    * The path must be **at most 2 levels deep** (the bucket root plus one subfolder).
+                        * Allowed: `projects`, `projects/nebula`
+                        * Not Allowed: `projects/nebula/develop`
+                5.  **Reasoning:** The `reason` field in the JSON must briefly explain your P.A.R.A. choice and naming logic.
+                
+                **Output Format:**
+                You MUST return ONLY the following JSON format. Do not provide any text or explanation outside the JSON block.
+                
                 {
                   "ko_name": "...",
                   "en_name": "...",
                   "para": { "bucket": "Projects|Areas|Resources|Archive", "path": "..." },
                   "reason": "..."
                 }
-                참고 정보:
-                - 기준 디렉터리: %s
-                - 상대 경로: %s
-                - 디렉터리 여부: %s
-                - 개발 관련 자원 여부: %s
-                - 파일 크기(Byte): %d
-                - 수정 시각: %s
-                - 키워드(파일 내부 내용에서 추출): %s
+                
+                Reference Information:
+                - Base Directory: %s
+                - Relative Path: %s
+                - Is Directory: %s
+                - Is Dev Resource: %s
+                - File Size (Bytes): %d
+                - Modified Time: %s
+                - Keywords (extracted from file content): %s
                 """.formatted(
                 extensionInstruction,
                 requestDto.getDirectory(),
