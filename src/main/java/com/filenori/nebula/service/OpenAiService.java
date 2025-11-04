@@ -28,7 +28,7 @@ public class OpenAiService {
     @Value("${openai.api.key}")
     private String apiKey;
 
-    @Value("${openai.api.model:gpt-4o-mini}")
+    @Value("${openai.api.model:gpt-5-mini}")
     private String model;
 
     private final WebClient openAiWebClient;
