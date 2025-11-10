@@ -39,3 +39,4 @@ out/
 # Custom Rules
 # OpenAI API Key 같은 민감 정보 보호
 application.properties
+*.properties

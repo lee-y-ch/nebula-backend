@@ -12,4 +12,6 @@ import java.util.List;
 public interface OrganizedFileRepository extends MongoRepository<OrganizedFileDocument, ObjectId> {
 
     List<OrganizedFileDocument> findByUserIdAndOriginalRelativePathIn(ObjectId userId, Collection<String> originalRelativePaths);
+
+    List<OrganizedFileDocument> findByUserIdAndParaBucket(ObjectId userId, String paraBucket);
 }
