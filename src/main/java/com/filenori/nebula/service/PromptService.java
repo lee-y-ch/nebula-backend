@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.filenori.nebula.entity.OrganizedFileDocument;
 import com.filenori.nebula.dto.request.KeywordRequestDto;
 import com.filenori.nebula.dto.response.FileNameGenerationResultDto;
+import com.filenori.nebula.dto.response.FileNameResponseDto;
 import com.filenori.nebula.repository.OrganizedFileRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -12,16 +13,17 @@ import org.springframework.stereotype.Service;
 import org.bson.types.ObjectId;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Objects;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-import java.util.Set;
 
 import reactor.core.publisher.Flux;
-import reactor.core.publisher.Mono;
 
 @Service
 @RequiredArgsConstructor
@@ -33,117 +35,173 @@ public class PromptService {
     private final OrganizedFileRepository organizedFileRepository;
     // private final FielNameHistoryRepository repository; // MongoDB 저장용
 
-    private static final int MAX_CONCURRENT_REQUESTS = 4;
+    private static final int BATCH_SIZE = 50;
 
     public List<FileNameGenerationResultDto> generateFileNameFromKeywords(KeywordRequestDto requestDto) {
+        log.info("=== Starting generateFileNameFromKeywords ===");
         List<KeywordRequestDto.Entry> entries = requestDto.getEntries();
 
         if (entries == null || entries.isEmpty()) {
+            log.warn("No entries provided");
             return List.of();
         }
 
-        List<FileNameGenerationResultDto> results = Flux.fromIterable(entries)
+        log.info("Total entries received: {}", entries.size());
+        String systemPrompt = "You only respond with JSON that matches the provided schema. Prefer Korean file names when they sound natural, but respond in English when that is clearer or more conventional for technical terms.";
+        ObjectId userId = extractValidUserId(requestDto.getUserId());
+
+        // 배치별로 처리: 첫 배치는 기존 폴더 없이, 이후 배치는 업데이트된 폴더 정보 포함
+        List<FileNameGenerationResultDto> results = new ArrayList<>();
+        List<List<KeywordRequestDto.Entry>> batches = entries.stream()
                 .filter(Objects::nonNull)
-                .flatMapSequential(entry -> {
-                    String prompt = createPromptForEntry(requestDto, entry);
-                    return Mono.zip(
-                                    Mono.just(entry),
-                                    openAiService.requestFileNameToGpt(prompt),
-                                    (original, response) -> {
-                                        PathInfo sanitized = response.getPara() == null
-                                                ? new PathInfo(null, null, null)
-                                                : parseParaPath(response.getPara().getBucket(), response.getPara().getPath());
+                .collect(Collectors.groupingBy(entry -> entries.indexOf(entry) / BATCH_SIZE))
+                .values()
+                .stream()
+                .toList();
 
-                                        return new FileNameGenerationResultDto(
-                                                original.getRelativePath(),
-                                                response.getKoName(),
-                                                response.getEnName(),
-                                                sanitized.bucket(),
-                                                sanitized.fullPath(),
-                                                response.getReason()
-                                        );
-                                    }
-                            )
-                            .doOnNext(this::logPrettyResult);
-                }, MAX_CONCURRENT_REQUESTS)
-                .collectList()
-                .block();
+        log.info("Total batches to process: {}", batches.size());
 
-        if (results == null) {
-            return List.of();
+        for (int batchIndex = 0; batchIndex < batches.size(); batchIndex++) {
+            List<KeywordRequestDto.Entry> batch = batches.get(batchIndex);
+            log.info("=== Processing batch {} with {} entries ===", batchIndex, batch.size());
+
+            List<FileNameGenerationResultDto> batchResults = processBatchWithIncrementalFolders(requestDto, batch, systemPrompt, userId)
+                    .collectList()
+                    .block();
+
+            if (batchResults != null) {
+                log.info("Batch {} completed with {} results", batchIndex, batchResults.size());
+                batchResults.stream()
+                        .filter(Objects::nonNull)
+                        .forEach(results::add);
+            } else {
+                log.warn("Batch {} returned null results", batchIndex);
+            }
         }
+
+        log.info("All batches completed. Total results: {}", results.size());
 
         persistResults(requestDto, results);
         return results;
     }
 
-    private String createPromptForEntry(KeywordRequestDto requestDto, KeywordRequestDto.Entry entry) {
+    private ObjectId extractValidUserId(String userIdStr) {
+        if (userIdStr == null || userIdStr.isBlank()) {
+            throw new IllegalArgumentException("userId is required");
+        }
+        try {
+            return new ObjectId(userIdStr);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("Invalid userId format: " + userIdStr, e);
+        }
+    }
+
+    private Map<String, Set<String>> getExistingParaFolders(ObjectId userId) {
+        Map<String, Set<String>> paraFolders = new HashMap<>();
+
+        try {
+            String[] buckets = {"Projects", "Areas", "Resources", "Archive"};
+
+            for (String bucket : buckets) {
+                List<OrganizedFileDocument> documents = organizedFileRepository.findFoldersByUserIdAndBucket(userId, bucket);
+                Set<String> folders = documents.stream()
+                        .map(OrganizedFileDocument::getParaFolder)
+                        .filter(Objects::nonNull)
+                        .collect(Collectors.toSet());
+                paraFolders.put(bucket, folders);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to retrieve existing PARA folders for user", e);
+        }
+
+        return paraFolders;
+    }
+
+    private Flux<FileNameGenerationResultDto> processBatchWithIncrementalFolders(KeywordRequestDto requestDto, List<KeywordRequestDto.Entry> batch, String systemPrompt, ObjectId userId) {
+        log.info("=== processBatchWithIncrementalFolders started ===");
+        // 현재 PARA 폴더 구조 조회 (이전 배치 처리 후 추가된 폴더 포함)
+        Map<String, Set<String>> currentParaFolders = getExistingParaFolders(userId);
+        log.info("Current PARA folders: {}", currentParaFolders);
+
+        List<String> fileInfos = batch.stream()
+                .map(entry -> buildFileInfo(requestDto, entry, currentParaFolders))
+                .toList();
+
+        log.info("Built file infos for batch, calling openAiService.requestFileNameToGptBatch with {} entries", fileInfos.size());
+
+        return openAiService.requestFileNameToGptBatch(fileInfos, systemPrompt)
+                .doOnNext(response -> log.info("Received response from OpenAI: {}", response))
+                .flatMapMany(responses -> {
+                    List<FileNameGenerationResultDto> batchResults = new ArrayList<>();
+                    for (int i = 0; i < batch.size() && i < responses.size(); i++) {
+                        KeywordRequestDto.Entry entry = batch.get(i);
+                        FileNameResponseDto response = responses.get(i);
+
+                        PathInfo sanitized = response.getPara() == null
+                                ? new PathInfo(null, null, null)
+                                : parseParaPath(response.getPara().getBucket(), response.getPara().getPath());
+
+                        FileNameGenerationResultDto result = new FileNameGenerationResultDto(
+                                entry.getRelativePath(),
+                                response.getKoName(),
+                                response.getEnName(),
+                                sanitized.bucket(),
+                                sanitized.fullPath(),
+                                response.getReason()
+                        );
+                        batchResults.add(result);
+                        logPrettyResult(result);
+                    }
+                    return Flux.fromIterable(batchResults);
+                });
+    }
+
+    private String buildFileInfo(KeywordRequestDto requestDto, KeywordRequestDto.Entry entry, Map<String, Set<String>> existingParaFolders) {
         String keywords = (entry.getKeywords() == null || entry.getKeywords().isEmpty())
                 ? "없음"
                 : String.join(", ", entry.getKeywords());
 
-        String extensionInstruction = buildExtensionInstruction(entry.getRelativePath(), entry.isDirectory());
+        String existingFoldersInfo = buildExistingFoldersInfo(existingParaFolders);
 
         return """
-                You are an expert assistant specializing in file organization. Your task is to analyze the provided file metadata, propose two distinct filenames, and recommend an organizational path based on the P.A.R.A. methodology.
-                
-                Rules:
-                1.  **Propose two filenames:**
-                    * **Korean (ko_name):** Use natural and intuitive Korean.
-                    * **English (en_name):** Use professional, standard English suitable for an international or technical context.
-                2.  **Use spaces in filenames:** You must use spaces in the filenames, which is a deliberate exception to typical file-naming conventions.
-                3.  %s
-                4.  **P.A.R.A. Recommendation:**
-                    * Determine the correct P.A.R.A. bucket: **Projects, Areas, Resources, or Archive**.
-                    * Base this decision on the file's purpose, frequency of use, and need for long-term preservation.
-                    * Propose a path using only **lowercase** folder names (e.g., `projects/nebula`).
-                    * The path **must not** include the filename itself.
-                    * The path must be **at most 2 levels deep** (the bucket root plus one subfolder).
-                        * Allowed: `projects`, `projects/nebula`
-                        * Not Allowed: `projects/nebula/develop`
-                5.  **Reasoning:** The `reason` field in the JSON must briefly explain your P.A.R.A. choice and naming logic.
-                
-                **Output Format:**
-                You MUST return ONLY the following JSON format. Do not provide any text or explanation outside the JSON block.
-                
-                {
-                  "ko_name": "...",
-                  "en_name": "...",
-                  "para": { "bucket": "Projects|Areas|Resources|Archive", "path": "..." },
-                  "reason": "..."
-                }
-                
-                Reference Information:
                 - Base Directory: %s
                 - Relative Path: %s
                 - Is Directory: %s
                 - Is Dev Resource: %s
                 - File Size (Bytes): %d
                 - Modified Time: %s
-                - Keywords (extracted from file content): %s
+                - Keywords: %s
+                %s
                 """.formatted(
-                extensionInstruction,
                 requestDto.getDirectory(),
                 entry.getRelativePath(),
                 entry.isDirectory(),
                 entry.isDevelopment(),
                 entry.getSizeBytes(),
                 entry.getModifiedAt(),
-                keywords);
+                keywords,
+                existingFoldersInfo);
     }
 
-    private String buildExtensionInstruction(String relativePath, boolean isDirectory) {
-        if (isDirectory || relativePath == null) {
-            return "디렉터리인 경우 확장자를 추가하지 않습니다.";
+    private String buildExistingFoldersInfo(Map<String, Set<String>> existingParaFolders) {
+        if (existingParaFolders == null || existingParaFolders.isEmpty()) {
+            return "";
         }
 
-        int lastDot = relativePath.lastIndexOf('.');
-        if (lastDot == -1 || lastDot == relativePath.length() - 1) {
-            return "원본에 확장자가 없으므로 확장자를 붙이지 않습니다.";
+        StringBuilder sb = new StringBuilder();
+        sb.append("- Existing PARA Folder Structure:\n");
+
+        String[] buckets = {"Projects", "Areas", "Resources", "Archive"};
+        for (String bucket : buckets) {
+            Set<String> folders = existingParaFolders.get(bucket);
+            if (folders != null && !folders.isEmpty()) {
+                sb.append("  * ").append(bucket).append(": ");
+                sb.append(String.join(", ", folders));
+                sb.append("\n");
+            }
         }
 
-        String extension = relativePath.substring(lastDot);
-        return "파일일 경우 반드시 '" + extension + "' 확장자를 그대로 유지합니다.";
+        return sb.toString();
     }
 
     private void logPrettyResult(FileNameGenerationResultDto result) {

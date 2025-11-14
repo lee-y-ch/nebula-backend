@@ -12,22 +12,34 @@ import java.util.List;
 
 @RestController
 @RequiredArgsConstructor
+@RequestMapping("/api/filenames")
 public class PromptController {
 
     private final PromptService promptService;
 
     /**
-     * 키워드 리스트를 받아 파일 이름을 생성하고 반환하는 API
+     * 파일 이름을 생성하는 API (내부적으로 배치 처리)
+     * 50개씩 묶어서 OpenAI API에 요청하므로 대량의 파일 처리에 효율적입니다.
+     *
      * @param requestDto 키워드 리스트를 포함하는 DTO
-     * @return 생성된 파일 이름 정보를 담은 DTO
+     *                   - userId: 사용자 ID
+     *                   - directory: 기본 디렉토리 경로
+     *                   - entries: 파일 정보 리스트 (최대 500개 권장)
+     * @return 생성된 파일 이름 정보를 담은 DTO 리스트
      */
-
-    // 파이썬에서 키워드 리스트 받아지는 함수
     @PostMapping("/generate-filename")
     public ResponseEntity<List<FileNameGenerationResultDto>> generateFileName(@RequestBody KeywordRequestDto requestDto) {
+        long startTime = System.currentTimeMillis();
 
-        // @RequestBody 어노테이션으로 JSON 요청 본문을 DTO에 매핑
         List<FileNameGenerationResultDto> responseDto = promptService.generateFileNameFromKeywords(requestDto);
+
+        long processingTime = System.currentTimeMillis() - startTime;
+        if (!responseDto.isEmpty()) {
+            int totalFiles = requestDto.getEntries() != null ? requestDto.getEntries().size() : 0;
+            int batchCount = (totalFiles + 49) / 50; // 올림 계산
+            System.out.println("Processing complete: " + totalFiles + " files in " + batchCount +
+                             " batches, took " + processingTime + "ms");
+        }
 
         return ResponseEntity.ok(responseDto);
     }
