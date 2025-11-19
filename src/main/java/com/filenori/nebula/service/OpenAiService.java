@@ -3,6 +3,7 @@ package com.filenori.nebula.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.filenori.nebula.dto.response.FileNameResponseDto;
+import com.filenori.nebula.dto.response.FolderRestructureResponseDto;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -352,6 +353,133 @@ public class OpenAiService {
         } catch (Exception e) {
             log.error("Failed to parse batch response array", e);
             throw new RuntimeException("Failed to parse batch response array", e);
+        }
+    }
+
+    public Mono<FolderRestructureResponseDto> requestFolderRestructureSuggestion(String userPrompt, String systemPrompt) {
+        Map<String, Object> systemMessage = createSimpleMessage("system", systemPrompt);
+        Map<String, Object> userMessage = createSimpleMessage("user", userPrompt);
+
+        Map<String, Object> requestBody = new HashMap<>();
+        requestBody.put("model", model);
+        requestBody.put("input", List.of(systemMessage, userMessage));
+        requestBody.put("text", buildFolderRestructureTextFormat());
+
+        log.info("Requesting folder restructure suggestion from OpenAI");
+
+        return openAiWebClient.post()
+                .uri(OPENAI_API_PATH)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(requestBody)
+                .retrieve()
+                .onStatus(status -> !status.is2xxSuccessful(), response ->
+                        response.bodyToMono(String.class)
+                                .doOnNext(errorBody -> log.error("OpenAI Folder Restructure API Error - {}", errorBody))
+                                .then(Mono.error(new RuntimeException("OpenAI API returned error")))
+                )
+                .bodyToMono(String.class)
+                .doOnNext(this::logPrettyResponse)
+                .flatMap(response -> Mono.fromCallable(() ->
+                        extractAndParseFolderRestructureResponse(response)
+                ).subscribeOn(Schedulers.boundedElastic()))
+                .onErrorMap(original -> original instanceof RuntimeException ? original : 
+                        new RuntimeException("Failed to call OpenAI folder restructure API", original));
+    }
+
+    private Map<String, Object> buildFolderRestructureTextFormat() {
+        // MergeSuggestion 스키마
+        Map<String, Object> mergeSuggestionSchema = new HashMap<>();
+        mergeSuggestionSchema.put("type", "object");
+        mergeSuggestionSchema.put("properties", Map.of(
+                "target_folder", Map.of("type", "string"),
+                "source_folders", Map.of("type", "array", "items", Map.of("type", "string")),
+                "suggested_name", Map.of("type", "string"),
+                "rationale", Map.of("type", "string")
+        ));
+        mergeSuggestionSchema.put("required", List.of("target_folder", "source_folders", "suggested_name", "rationale"));
+        mergeSuggestionSchema.put("additionalProperties", false);
+
+        // 메인 응답 스키마
+        Map<String, Object> schema = new HashMap<>();
+        schema.put("type", "object");
+        schema.put("properties", Map.of(
+                "merge_suggestions", Map.of(
+                        "type", "array",
+                        "items", mergeSuggestionSchema
+                ),
+                "reason", Map.of("type", "string")
+        ));
+        schema.put("required", List.of("merge_suggestions", "reason"));
+        schema.put("additionalProperties", false);
+
+        Map<String, Object> format = new HashMap<>();
+        format.put("type", "json_schema");
+        format.put("name", "FolderRestructureResponse");
+        format.put("schema", schema);
+        format.put("strict", true);
+
+        Map<String, Object> textFormat = new HashMap<>();
+        textFormat.put("format", format);
+
+        return textFormat;
+    }
+
+    private FolderRestructureResponseDto extractAndParseFolderRestructureResponse(String response) throws Exception {
+        try {
+            log.info("Extracting folder restructure response");
+
+            JsonNode root = objectMapper.readTree(response);
+            JsonNode output = root.path("output");
+
+            if (!output.isArray() || output.isEmpty()) {
+                log.error("Output is not an array or is empty");
+                throw new IllegalStateException("OpenAI did not return any output");
+            }
+
+            StringBuilder contentBuilder = new StringBuilder();
+            for (JsonNode messageNode : output) {
+                String messageType = messageNode.path("type").asText();
+                log.debug("Processing output message with type: {}", messageType);
+
+                JsonNode contentArray = messageNode.path("content");
+                if (contentArray.isArray() && contentArray.size() > 0) {
+                    for (JsonNode contentNode : contentArray) {
+                        String contentType = contentNode.path("type").asText();
+                        if ("output_text".equals(contentType) || "text".equals(contentType)) {
+                            String text = contentNode.path("text").asText();
+                            contentBuilder.append(text);
+                        }
+                    }
+                }
+            }
+
+            String jsonString = contentBuilder.toString().trim();
+            log.debug("Extracted JSON content: {}", jsonString);
+
+            if (jsonString.isEmpty()) {
+                throw new IllegalStateException("No content extracted from response");
+            }
+
+            // Parse the JSON response
+            FolderRestructureResponseDto result = objectMapper.readValue(jsonString, FolderRestructureResponseDto.class);
+            log.info("Successfully parsed folder restructure response with {} suggestions", 
+                    result.getMergeSuggestions().size());
+
+            return result;
+        } catch (Exception e) {
+            log.error("Failed to extract folder restructure response", e);
+            throw new RuntimeException("Failed to extract folder restructure response", e);
+        }
+    }
+
+    private void logPrettyResponse(String response) {
+        try {
+            JsonNode jsonNode = objectMapper.readTree(response);
+            String prettyResponse = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(jsonNode);
+            log.info("OpenAI Response:\n{}", prettyResponse);
+        } catch (Exception e) {
+            log.info("OpenAI Response: {}", response);
         }
     }
 
