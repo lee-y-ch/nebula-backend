@@ -44,4 +44,6 @@ public class OrganizedFileDocument {
     private String reason;
 
     private Instant createdAt;
+    private List<Double> embedding;
+    private Instant embeddingUpdatedAt;
 }

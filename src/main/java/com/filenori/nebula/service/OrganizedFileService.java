@@ -29,6 +29,7 @@ public class OrganizedFileService {
 
     private final OrganizedFileRepository organizedFileRepository;
     private final PromptService promptService;
+    private final SageMakerEmbeddingService embeddingService;
 
     /**
      * 키워드를 기반으로 파일명을 자동 생성한 후 저장
@@ -272,7 +273,7 @@ public class OrganizedFileService {
         
         String paraFullPath = buildParaFullPath(fileDto.getParaBucket(), fileDto.getParaFolder());
 
-        return OrganizedFileDocument.builder()
+        OrganizedFileDocument.OrganizedFileDocumentBuilder builder = OrganizedFileDocument.builder()
                 .id(existing != null ? existing.getId() : null)
                 .userId(userId)
                 .baseDirectory(requestDto.getBaseDirectory())
@@ -288,10 +289,51 @@ public class OrganizedFileService {
                 .paraFolder(fileDto.getParaFolder())
                 .paraFullPath(paraFullPath)
                 .reason(fileDto.getReason())
-                .createdAt(existing != null && existing.getCreatedAt() != null 
-                           ? existing.getCreatedAt() 
-                           : Instant.now())
-                .build();
+                .createdAt(existing != null && existing.getCreatedAt() != null
+                        ? existing.getCreatedAt()
+                        : Instant.now());
+
+        enrichWithEmbedding(builder, fileDto, existing);
+
+        return builder.build();
+    }
+
+    private void enrichWithEmbedding(OrganizedFileDocument.OrganizedFileDocumentBuilder builder,
+                                     OrganizedFileSaveRequestDto.OrganizedFileEntryDto fileDto,
+                                     OrganizedFileDocument existing) {
+        String embeddingInput = buildEmbeddingText(fileDto);
+        embeddingService.embedText(embeddingInput).ifPresentOrElse(embedding -> builder
+                        .embedding(embedding)
+                        .embeddingUpdatedAt(Instant.now()),
+                () -> {
+                    if (existing != null && existing.getEmbedding() != null) {
+                        builder.embedding(existing.getEmbedding());
+                        builder.embeddingUpdatedAt(existing.getEmbeddingUpdatedAt());
+                    }
+                });
+    }
+
+    private String buildEmbeddingText(OrganizedFileSaveRequestDto.OrganizedFileEntryDto fileDto) {
+        StringBuilder sb = new StringBuilder();
+        if (fileDto.getKoreanFileName() != null) {
+            sb.append(fileDto.getKoreanFileName()).append(' ');
+        }
+        if (fileDto.getEnglishFileName() != null) {
+            sb.append(fileDto.getEnglishFileName()).append(' ');
+        }
+        if (fileDto.getParaBucket() != null) {
+            sb.append("bucket:").append(fileDto.getParaBucket()).append(' ');
+        }
+        if (fileDto.getParaFolder() != null) {
+            sb.append("folder:").append(fileDto.getParaFolder()).append(' ');
+        }
+        if (fileDto.getReason() != null) {
+            sb.append(fileDto.getReason()).append(' ');
+        }
+        if (fileDto.getKeywords() != null && !fileDto.getKeywords().isEmpty()) {
+            sb.append(String.join(" ", fileDto.getKeywords())).append(' ');
+        }
+        return sb.toString().trim();
     }
 
     private String buildParaFullPath(String paraBucket, String paraFolder) {

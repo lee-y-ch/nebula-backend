@@ -2,9 +2,12 @@ package com.filenori.nebula.controller;
 
 import com.filenori.nebula.dto.request.OrganizedFileSaveRequestDto;
 import com.filenori.nebula.dto.request.OrganizedFileSaveWithGenerationRequestDto;
+import com.filenori.nebula.dto.request.OrganizedFileSearchRequestDto;
 import com.filenori.nebula.dto.response.OrganizedFileSaveResponseDto;
+import com.filenori.nebula.dto.response.OrganizedFileSearchResponseDto;
 import com.filenori.nebula.entity.OrganizedFileDocument;
 import com.filenori.nebula.service.OrganizedFileService;
+import com.filenori.nebula.service.OrganizedFileSearchService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -19,6 +22,7 @@ import java.util.List;
 public class OrganizedFileController {
 
     private final OrganizedFileService organizedFileService;
+    private final OrganizedFileSearchService organizedFileSearchService;
 
     /**
      * 키워드를 기반으로 파일명을 자동 생성한 후 MongoDB에 저장
@@ -97,6 +101,31 @@ public class OrganizedFileController {
             
         } catch (Exception e) {
             log.error("Error retrieving organized files for user: {}", userId, e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    /**
+     * 벡터 검색 기반 파일 검색
+     */
+    @PostMapping("/search")
+    public ResponseEntity<OrganizedFileSearchResponseDto> searchOrganizedFiles(
+            @RequestBody OrganizedFileSearchRequestDto requestDto) {
+
+        log.info("=== Organized File Search === user={}, query='{}'",
+                requestDto.getUserId(), requestDto.getQuery());
+
+        try {
+            OrganizedFileSearchResponseDto response = organizedFileSearchService.search(requestDto);
+            return ResponseEntity.ok(response);
+        } catch (IllegalArgumentException e) {
+            log.warn("Search validation error: {}", e.getMessage());
+            return ResponseEntity.badRequest().build();
+        } catch (IllegalStateException e) {
+            log.error("Search processing error", e);
+            return ResponseEntity.status(503).build();
+        } catch (Exception e) {
+            log.error("Unexpected error during search", e);
             return ResponseEntity.internalServerError().build();
         }
     }
