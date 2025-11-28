@@ -44,7 +44,6 @@ public class OrganizedFileService {
         // 키워드 요청 검증
         ValidationResult validation = validateGenerationRequest(requestDto);
         if (!validation.isValid()) {
-            log.info("뭐야 씨발" + validation.errorMessages);
             return OrganizedFileSaveResponseDto.builder()
                     .totalProcessed(0)
                     .savedCount(0)
@@ -70,7 +69,7 @@ public class OrganizedFileService {
 
             // 3. 기존 저장 로직 사용
             return saveOrganizedFiles(saveRequest);
-
+            
         } catch (Exception e) {
             log.error("Error in saveOrganizedFilesWithGeneration", e);
             return OrganizedFileSaveResponseDto.builder()
