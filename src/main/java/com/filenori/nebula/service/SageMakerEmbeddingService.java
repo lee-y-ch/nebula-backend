@@ -1,6 +1,6 @@
 package com.filenori.nebula.service;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -12,6 +12,7 @@ import software.amazon.awssdk.services.sagemakerruntime.SageMakerRuntimeClient;
 import software.amazon.awssdk.services.sagemakerruntime.model.InvokeEndpointRequest;
 import software.amazon.awssdk.services.sagemakerruntime.model.InvokeEndpointResponse;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -45,7 +46,7 @@ public class SageMakerEmbeddingService {
         }
 
         try {
-            Map<String, String> payload = Map.of("text", text);
+            Map<String, Object> payload = Map.of("inputs", Collections.singletonList(text));
             byte[] body = objectMapper.writeValueAsBytes(payload);
 
             InvokeEndpointRequest request = InvokeEndpointRequest.builder()
@@ -57,33 +58,118 @@ public class SageMakerEmbeddingService {
             InvokeEndpointResponse response = runtimeClient.invokeEndpoint(request);
             byte[] responseBytes = response.body().asByteArray();
 
-            EmbeddingResponse embeddingResponse = objectMapper.readValue(responseBytes, EmbeddingResponse.class);
-            if (embeddingResponse.embedding() == null || embeddingResponse.embedding().isEmpty()) {
-                log.warn("SageMaker embedding response did not contain embedding field");
-                return Optional.empty();
-            }
-            return Optional.of(embeddingResponse.embedding());
+            return extractEmbedding(responseBytes);
         } catch (Exception e) {
             log.error("Failed to retrieve embedding from SageMaker endpoint {}", endpointName, e);
             return Optional.empty();
         }
     }
 
-    private record EmbeddingResponse(@JsonProperty("embedding") List<Double> embedding) {
+    private Optional<List<Double>> extractEmbedding(byte[] responseBytes) {
+        try {
+            JsonNode root = objectMapper.readTree(responseBytes);
+            JsonNode tokenVectorsNode = findFirstArrayOfVectors(root);
+            if (tokenVectorsNode == null) {
+                log.warn("Unable to locate token vectors from SageMaker response");
+                return Optional.empty();
+            }
+
+            List<List<Double>> tokenVectors = toVectorList(tokenVectorsNode);
+            if (tokenVectors.isEmpty()) {
+                log.warn("Token vectors were empty in SageMaker response");
+                return Optional.empty();
+            }
+
+            List<Double> averaged = averageTokenVectors(tokenVectors);
+            if (averaged.isEmpty()) {
+                log.warn("Averaged embedding is empty after processing SageMaker response");
+                return Optional.empty();
+            }
+            return Optional.of(averaged);
+        } catch (Exception e) {
+            log.error("Failed to parse SageMaker embedding response", e);
+            return Optional.empty();
+        }
     }
 
-    /**
-     * Helper for debug/testing without SageMaker.
-     */
-    public List<Double> mockEmbedding(String text) {
-        if (!StringUtils.hasText(text)) {
-            return Collections.emptyList();
+    private JsonNode findFirstArrayOfVectors(JsonNode node) {
+        if (node == null || !node.isArray() || node.isEmpty()) {
+            return null;
         }
-        return text.chars()
-                .limit(10)
-                .mapToDouble(ch -> (double) (ch % 10) / 10.0)
-                .boxed()
-                .toList();
+        if (isArrayOfVectors(node)) {
+            return node;
+        }
+        for (JsonNode child : node) {
+            JsonNode candidate = findFirstArrayOfVectors(child);
+            if (candidate != null) {
+                return candidate;
+            }
+        }
+        return null;
+    }
+
+    private boolean isArrayOfVectors(JsonNode node) {
+        if (node == null || !node.isArray() || node.isEmpty()) {
+            return false;
+        }
+        JsonNode first = node.get(0);
+        return first.isArray()
+                && first.size() > 0
+                && first.get(0).isNumber();
+    }
+
+    private List<List<Double>> toVectorList(JsonNode node) {
+        if (node == null || !node.isArray()) {
+            return List.of();
+        }
+
+        List<List<Double>> vectors = new ArrayList<>();
+        for (JsonNode element : node) {
+            if (!element.isArray()) {
+                continue;
+            }
+            List<Double> values = new ArrayList<>(element.size());
+            for (JsonNode valueNode : element) {
+                if (valueNode.isNumber()) {
+                    values.add(valueNode.asDouble());
+                }
+            }
+            if (!values.isEmpty()) {
+                vectors.add(values);
+            }
+        }
+        return vectors;
+    }
+
+    private List<Double> averageTokenVectors(List<List<Double>> tokenVectors) {
+        if (tokenVectors.isEmpty()) {
+            return List.of();
+        }
+
+        int dimension = tokenVectors.get(0).size();
+        double[] sums = new double[dimension];
+        int validTokens = 0;
+
+        for (List<Double> token : tokenVectors) {
+            if (token.size() != dimension) {
+                log.debug("Skipping token vector due to dimension mismatch. expected={}, actual={}", dimension, token.size());
+                continue;
+            }
+            for (int i = 0; i < dimension; i++) {
+                sums[i] += token.get(i);
+            }
+            validTokens++;
+        }
+
+        if (validTokens == 0) {
+            return List.of();
+        }
+
+        List<Double> averaged = new ArrayList<>(dimension);
+        for (double sum : sums) {
+            averaged.add(sum / validTokens);
+        }
+        return averaged;
     }
 }
 
