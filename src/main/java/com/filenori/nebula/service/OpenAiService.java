@@ -70,9 +70,9 @@ public class OpenAiService {
                 .onErrorMap(original -> original instanceof RuntimeException ? original : new RuntimeException("Failed to call OpenAI API", original));
     }
 
-    public Mono<List<FileNameResponseDto>> requestFileNameToGptBatch(List<String> prompts, String systemPrompt) {
+    public Mono<List<FileNameResponseDto>> requestFileNameToGptBatch(List<String> prompts, String systemPrompt, String existingFoldersInfo) {
         // 50개 파일 정보를 모두 하나의 프롬프트에 포함
-        String combinedPrompt = buildCombinedBatchPrompt(prompts);
+        String combinedPrompt = buildCombinedBatchPrompt(prompts, existingFoldersInfo);
 
         Map<String, Object> systemMessage = createSimpleMessage("system", systemPrompt);
         Map<String, Object> userMessage = createSimpleMessage("user", combinedPrompt);
@@ -114,7 +114,7 @@ public class OpenAiService {
     }
 
 
-    private String buildCombinedBatchPrompt(List<String> fileInfos) {
+    private String buildCombinedBatchPrompt(List<String> fileInfos, String existingFoldersInfo) {
         StringBuilder sb = new StringBuilder();
 
         // 지시사항
@@ -122,17 +122,28 @@ public class OpenAiService {
                 .append("Your task is to analyze the provided file metadata for ").append(fileInfos.size())
                 .append(" files and provide naming suggestions and P.A.R.A. organization recommendations.\n\n");
 
+        // 기존 PARA 폴더 구조 (한 번만 포함)
+        if (existingFoldersInfo != null && !existingFoldersInfo.isBlank()) {
+            sb.append("**Existing PARA Folder Structure (prefer using existing folders when appropriate):**\n");
+            sb.append(existingFoldersInfo).append("\n");
+        }
+
         sb.append("Rules:\n")
                 .append("1. **Propose two filenames for each file:**\n")
                 .append("   * **Korean (ko_name):** Use natural and intuitive Korean.\n")
                 .append("   * **English (en_name):** Use professional, standard English.\n")
+                .append("   * **IMPORTANT:** Do NOT include file extensions (e.g., .pdf, .jpg, .docx) in the proposed filenames.\n")
                 .append("2. **Use spaces in filenames:** You must use spaces in the filenames.\n")
-                .append("3. **P.A.R.A. Recommendation:**\n")
+                .append("3. **Keyword Priority:** If the provided keywords differ from the original filename, ")
+                .append("prioritize the keywords over the filename when determining the new name, bucket, and path. ")
+                .append("Keywords represent the actual content of the file extracted via ML analysis.\n")
+                .append("4. **P.A.R.A. Recommendation:**\n")
                 .append("   * Determine the correct P.A.R.A. bucket: **Projects, Areas, Resources, or Archive**.\n")
                 .append("   * Propose a path using only **lowercase** folder names (e.g., `projects/nebula`).\n")
                 .append("   * The path **must not** include the filename itself.\n")
                 .append("   * The path must be **at most 2 levels deep** (bucket + one subfolder).\n")
-                .append("4. **Reasoning:** Briefly explain your P.A.R.A. choice and naming logic.\n\n");
+                .append("   * **Prefer existing folders** from the structure above when the file fits an existing category.\n")
+                .append("5. **Reasoning:** Briefly explain your P.A.R.A. choice and naming logic.\n\n");
 
         sb.append("**Output Format:**\n")
                 .append("Return ONLY a JSON array with exactly ").append(fileInfos.size())

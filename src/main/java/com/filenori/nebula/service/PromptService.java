@@ -124,12 +124,14 @@ public class PromptService {
         log.info("Current PARA folders: {}", currentParaFolders);
 
         List<String> fileInfos = batch.stream()
-                .map(entry -> buildFileInfo(requestDto, entry, currentParaFolders))
+                .map(entry -> buildFileInfo(requestDto, entry))
                 .toList();
+
+        String existingFoldersInfo = buildExistingFoldersInfo(currentParaFolders);
 
         log.info("Built file infos for batch, calling openAiService.requestFileNameToGptBatch with {} entries", fileInfos.size());
 
-        return openAiService.requestFileNameToGptBatch(fileInfos, systemPrompt)
+        return openAiService.requestFileNameToGptBatch(fileInfos, systemPrompt, existingFoldersInfo)
                 .doOnNext(response -> log.info("Received response from OpenAI: {}", response))
                 .flatMapMany(responses -> {
                     List<FileNameGenerationResultDto> batchResults = new ArrayList<>();
@@ -156,12 +158,10 @@ public class PromptService {
                 });
     }
 
-    private String buildFileInfo(KeywordRequestDto requestDto, KeywordRequestDto.Entry entry, Map<String, Set<String>> existingParaFolders) {
+    private String buildFileInfo(KeywordRequestDto requestDto, KeywordRequestDto.Entry entry) {
         String keywords = (entry.getKeywords() == null || entry.getKeywords().isEmpty())
                 ? "없음"
                 : String.join(", ", entry.getKeywords());
-
-        String existingFoldersInfo = buildExistingFoldersInfo(existingParaFolders);
 
         return """
                 - Base Directory: %s
@@ -171,7 +171,6 @@ public class PromptService {
                 - File Size (Bytes): %d
                 - Modified Time: %s
                 - Keywords: %s
-                %s
                 """.formatted(
                 requestDto.getDirectory(),
                 entry.getRelativePath(),
@@ -179,8 +178,7 @@ public class PromptService {
                 entry.isDevelopment(),
                 entry.getSizeBytes(),
                 entry.getModifiedAt(),
-                keywords,
-                existingFoldersInfo);
+                keywords);
     }
 
     private String buildExistingFoldersInfo(Map<String, Set<String>> existingParaFolders) {
