@@ -320,12 +320,12 @@ public class OrganizedFileService {
         if (fileDto.getEnglishFileName() != null) {
             sb.append(fileDto.getEnglishFileName()).append(' ');
         }
-        if (fileDto.getParaBucket() != null) {
-            sb.append("bucket:").append(fileDto.getParaBucket()).append(' ');
-        }
-        if (fileDto.getParaFolder() != null) {
-            sb.append("folder:").append(fileDto.getParaFolder()).append(' ');
-        }
+        // if (fileDto.getParaBucket() != null) {
+        //     sb.append("bucket:").append(fileDto.getParaBucket()).append(' ');
+        // }
+        // if (fileDto.getParaFolder() != null) {
+        //     sb.append(fileDto.getParaFolder()).append(' ');
+        // }
         if (fileDto.getReason() != null) {
             sb.append(fileDto.getReason()).append(' ');
         }
