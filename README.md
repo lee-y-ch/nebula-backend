@@ -10,7 +10,7 @@
 
 Nebula는 4개의 핵심 시스템이 유기적으로 연결된 아키텍처를 가집니다.
 
-![System Architecture](nebula_아키텍처.png)
+![System Architecture](images/architecture.png)
 
 1. **Client (FastAPI / ML):** 로컬 파일 스캔 및 메타데이터 추출, 이미지 캡셔닝/OCR을 통한 특징 추출 담당.
 2. **Back End (Spring Boot):** 배치 데이터 수신, 프롬프트 최적화 구성 및 OpenAI API 연동을 통한 데이터 구조화 수행.
@@ -36,6 +36,8 @@ Nebula는 4개의 핵심 시스템이 유기적으로 연결된 아키텍처를 
 ![AWS](https://img.shields.io/badge/AWS-232F3E?style=for-the-badge&logo=amazonaws&logoColor=white)
 ![EC2](https://img.shields.io/badge/Amazon%20EC2-FF9900?style=for-the-badge&logo=amazonec2&logoColor=white)
 ![SageMaker](https://img.shields.io/badge/Amazon%20SageMaker-FF9900?style=for-the-badge&logo=amazonsagemaker&logoColor=white)
+![S3](https://img.shields.io/badge/Amazon%20S3-569A31?style=for-the-badge&logo=amazons3&logoColor=white)
+![Lambda](https://img.shields.io/badge/AWS%20Lambda-FF9900?style=for-the-badge&logo=awslambda&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)
 ![Jenkins](https://img.shields.io/badge/Jenkins-D24939?style=for-the-badge&logo=jenkins&logoColor=white)
 
@@ -50,14 +52,10 @@ Nebula는 4개의 핵심 시스템이 유기적으로 연결된 아키텍처를 
 
 ### 2. P.A.R.A Method Organization
 생산성 방법론인 P.A.R.A를 채택하여 파일을 '실행 가능성'에 따라 4가지 영역으로 자동 분류합니다.
-* **Projects:** 명확한 목표와 마감일이 있는 단기 과업.
-* **Areas:** 지속적인 책임이 필요한 활동 영역.
-* **Resources:** 미래에 유용할 수 있는 관심 주제 및 참조 자료.
-* **Archives:** 완료되었거나 더 이상 활성화되지 않은 항목.
+* **Projects / Areas / Resources / Archives** 자동 분류 로직 적용.
 
 ### 3. Semantic Search (Vector Embedding)
 키워드 매칭을 넘어선 **의미 기반 검색** 성능을 확보했습니다.
-* **최적의 데이터 조합:** 테스트 결과 '생성된 파일명 + 키워드' 조합에서 가장 높은 검색 정확도를 확인했습니다.
 * **고성능 검색:** Cosine Similarity와 HNSW 인덱스를 활용하여 **p99 응답 속도 60ms**(3,000개 문서 기준)를 달성했습니다.
 
 ---
@@ -67,3 +65,8 @@ Nebula는 4개의 핵심 시스템이 유기적으로 연결된 아키텍처를 
 ### 폴더 깊이 문제 (Folder Depth Management)
 * **문제:** 폴더 구조가 지나치게 깊어질 경우 시스템 탐색 시간이 기하급수적으로 증가하고 메모리 소비가 심화되는 문제가 발생했습니다.
 * **해결:** 1차 프롬프팅 후 생성된 폴더 트리를 재전송하여 구조를 최적화하고 중복 폴더를 제거하는 **2단계 폴더 재취합 로직**을 구현하여 효율성을 극대화했습니다.
+
+---
+
+## 📄 API Documentation
+상세 API 명세는 다음 문서에서 확인하실 수 있습니다: [organized-files-api.md](./docs/organized-files-api.md)
