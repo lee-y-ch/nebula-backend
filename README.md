@@ -10,7 +10,7 @@
 
 Nebula는 4개의 핵심 시스템이 유기적으로 연결된 아키텍처를 가집니다.
 
-![System Architecture](images/architecture.png)
+![System Architecture](nebula_아키텍처.png)
 
 1. **Client (FastAPI / ML):** 로컬 파일 스캔 및 메타데이터 추출, 이미지 캡셔닝/OCR을 통한 특징 추출 담당.
 2. **Back End (Spring Boot):** 배치 데이터 수신, 프롬프트 최적화 구성 및 OpenAI API 연동을 통한 데이터 구조화 수행.
@@ -65,8 +65,3 @@ Nebula는 4개의 핵심 시스템이 유기적으로 연결된 아키텍처를 
 ### 폴더 깊이 문제 (Folder Depth Management)
 * **문제:** 폴더 구조가 지나치게 깊어질 경우 시스템 탐색 시간이 기하급수적으로 증가하고 메모리 소비가 심화되는 문제가 발생했습니다.
 * **해결:** 1차 프롬프팅 후 생성된 폴더 트리를 재전송하여 구조를 최적화하고 중복 폴더를 제거하는 **2단계 폴더 재취합 로직**을 구현하여 효율성을 극대화했습니다.
-
----
-
-## 📄 API Documentation
-상세 API 명세는 다음 문서에서 확인하실 수 있습니다: [organized-files-api.md](./docs/organized-files-api.md)
